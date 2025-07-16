@@ -2,16 +2,7 @@ import streamlit as st
 import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-import locale
-
-# Forcer la locale française (adaptation selon OS)
-try:
-    locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')  # Linux/macOS
-except locale.Error:
-    try:
-        locale.setlocale(locale.LC_TIME, 'French_France.1252')  # Windows
-    except locale.Error:
-        st.warning("Locale française non disponible sur ce système. Dates en anglais.")
+import seaborn as sns
 
 st.set_page_config(page_title="Rythmes du Cycle - Vue Synthétique", layout="centered")
 
@@ -25,8 +16,8 @@ def get_cycle_phase(day, cycle_length=28):
     ]
     for name, start, end, emoji in phases:
         if start <= day % cycle_length <= end:
-            return name, start, end
-    return "Inconnu", None, None
+            return name
+    return "Inconnu"
 
 def phase_activity_profile():
     return {
@@ -68,65 +59,50 @@ with col2:
 activity_profiles = phase_activity_profile()
 phase_days = {}
 
-# Répartir les jours du cycle par phase et mémoriser les dates
+# Répartir les jours du cycle par phase
 for i in range(cycle_length):
-    phase, start_idx, end_idx = get_cycle_phase(i, cycle_length)
+    phase = get_cycle_phase(i, cycle_length)
     if phase not in phase_days:
-        phase_days[phase] = {"days": [], "start_idx": start_idx, "end_idx": end_idx}
-    phase_days[phase]["days"].append(start_date + datetime.timedelta(days=i))
+        phase_days[phase] = []
+    phase_days[phase].append(i + 1)
 
 # Calculer les moyennes de proportion par activité pour chaque phase
 data = []
-for phase, info in phase_days.items():
+for phase, days in phase_days.items():
     profile = activity_profiles.get(phase, {})
     for activity, proportion in profile.items():
         data.append({
             "Phase": phase,
             "Activité": activity,
-            "Proportion moyenne": proportion
+            "Proportion moyenne": proportion,
+            "Jours": f"{min(days)}-{max(days)}"
         })
 
-df = pd.DataFrame(data)
-df_pivot = df.pivot_table(index="Phase", columns="Activité", values="Proportion moyenne", fill_value=0)
+summary_df = pd.DataFrame(data)
+df_pivot = summary_df.pivot_table(index=["Phase", "Jours"], columns="Activité", values="Proportion moyenne", fill_value=0)
 
 # Ordre des phases chronologique
 phase_order = ["Menstruation", "Folliculaire", "Ovulation", "Lutéale"]
-df_pivot = df_pivot.loc[phase_order]
-
-# Préparer les labels avec nom phase + plage de dates en français
-x_labels = []
-for phase in phase_order:
-    info = phase_days.get(phase)
-    if info:
-        start_date_phase = info["days"][0].strftime("%d %b")
-        end_date_phase = info["days"][-1].strftime("%d %b")
-        label = f"{phase}\n{start_date_phase} - {end_date_phase}"
-    else:
-        label = phase
-    x_labels.append(label)
+df_pivot = df_pivot.reindex([(p, summary_df[summary_df["Phase"] == p]["Jours"].iloc[0]) for p in phase_order])
 
 # --- Diagramme de synthèse par phase ---
 st.subheader("📊 Activités recommandées regroupées par phase")
-
 fig, ax = plt.subplots(figsize=(9, 6))
 df_pivot.plot(kind="bar", stacked=True, ax=ax, colormap="tab20")
-
 ax.set_ylabel("Proportion d'énergie/temps")
-ax.set_xlabel("Phase du cycle")
+ax.set_xlabel("Phase du cycle (jours correspondants)")
 ax.set_title("Répartition idéale des types d'activités par phase du cycle")
+ax.set_xticklabels([f"{phase}\n({jours})" for phase, jours in df_pivot.index], rotation=0)
 ax.legend(title="Type d'activité", bbox_to_anchor=(1.05, 1), loc='upper left')
-ax.set_xticklabels(x_labels, rotation=0)
-
 st.pyplot(fig)
 
 # --- Légende explicative ---
-st.markdown("---")
-st.markdown("### Légende des phases et recommandations")
 st.markdown("""
-- **Menstruation** : Priorisez les activités réparatrices, créatives douces, et un peu de logistique.  
-- **Folliculaire** : Favorisez la créativité, l'exploration et l'apprentissage.  
-- **Ovulation** : Mettez l'accent sur la communication, les relations, et le leadership.  
-- **Lutéale** : Concentrez-vous sur les tâches exécutives, l'analyse et les routines automatisées.
+### 🧾 Légende des phases
+- **🔴 Menstruation** *(Jours 1-5)* : période de repos, recentrage, ressourcement
+- **🌱 Folliculaire** *(Jours 6-13)* : montée en énergie, exploration et créativité
+- **💫 Ovulation** *(Jours 14-16)* : élan relationnel, communication et visibilité
+- **🌙 Lutéale** *(Jours 17-fin)* : recentrage, tri, tâches concrètes et automatisées
 """)
 
 # --- Footer ---
